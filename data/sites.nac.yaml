@@ -4,7 +4,7 @@ sdwan:
   sites:
     - id: 1
       routers:
-        - chassis_id: REPLACE-WITH-DEVICE-UUID-FROM-VMANAGE
+        - chassis_id: C8K-3D1A8960-6E76-532C-DA93-50626FC5797E
           configuration_group: branches
           configuration_group_deploy: true
           device_variables:
