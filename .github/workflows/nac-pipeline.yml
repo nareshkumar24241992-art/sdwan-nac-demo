@@ -11,6 +11,8 @@ env:
   TF_VAR_sdwan_username: ${{ secrets.SDWAN_USERNAME }}
   TF_VAR_sdwan_password: ${{ secrets.SDWAN_PASSWORD }}
   TF_STATE_SUBDIR: sdwan-nac-demo
+  # Objects created by nac-sdwan module before configuration group (import must finish first)
+  SDWAN_RESOURCES_EXPECTED: "12"
 
 jobs:
   terraform:
@@ -64,10 +66,11 @@ jobs:
           set -e
           count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
           echo "Resources in state before sync: ${count}"
-          if [ "${count}" -ge 1 ]; then
-            echo "State already populated; skipping import."
+          if [ "${count}" -ge "${SDWAN_RESOURCES_EXPECTED}" ]; then
+            echo "State complete (${count} resources); skipping import."
             exit 0
           fi
+          echo "State incomplete (${count}/${SDWAN_RESOURCES_EXPECTED}); running import..."
           if [ ! -f scripts/bootstrap-import-existing.sh ]; then
             echo "ERROR: scripts/bootstrap-import-existing.sh missing — push it to GitHub."
             exit 1
@@ -76,8 +79,8 @@ jobs:
           bash scripts/bootstrap-import-existing.sh
           count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
           echo "Resources in state after sync: ${count}"
-          if [ "${count}" -lt 12 ]; then
-            echo "ERROR: import did not populate state (VPN up? IDs match this sandbox?)."
+          if [ "${count}" -lt "${SDWAN_RESOURCES_EXPECTED}" ]; then
+            echo "ERROR: import incomplete (${count}/${SDWAN_RESOURCES_EXPECTED}). VPN up? Fixed bootstrap script pushed?"
             exit 1
           fi
 
@@ -89,8 +92,13 @@ jobs:
         run: |
           set -e
           count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          if [ "${count}" -lt 1 ]; then
+          if [ "${count}" -lt "${SDWAN_RESOURCES_EXPECTED}" ]; then
             bash scripts/bootstrap-import-existing.sh
+          fi
+          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
+          if [ "${count}" -lt "${SDWAN_RESOURCES_EXPECTED}" ]; then
+            echo "ERROR: refuse apply with partial state (${count}/${SDWAN_RESOURCES_EXPECTED})"
+            exit 1
           fi
           terraform apply -auto-approve
 
@@ -100,7 +108,7 @@ jobs:
           TF_STATE_DIR="${HOME}/terraform-state/${TF_STATE_SUBDIR}"
           mkdir -p "$TF_STATE_DIR"
           COUNT="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          if [ -f terraform.tfstate ] && [ "${COUNT}" -ge 1 ]; then
+          if [ -f terraform.tfstate ] && [ "${COUNT}" -ge "${SDWAN_RESOURCES_EXPECTED}" ]; then
             cp terraform.tfstate "$TF_STATE_DIR/"
             [ -f terraform.tfstate.backup ] && \
               cp terraform.tfstate.backup "$TF_STATE_DIR/" || true
