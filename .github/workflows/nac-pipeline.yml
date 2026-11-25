@@ -49,7 +49,27 @@ jobs:
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve
+        env:
+          VMANAGE_URL: ${{ secrets.SDWAN_URL }}
+          VMANAGE_USER: ${{ secrets.SDWAN_USERNAME }}
+          VMANAGE_PASSWORD: ${{ secrets.SDWAN_PASSWORD }}
+        run: |
+          set -e
+          APPLY_RC=0
+          terraform apply -auto-approve 2>&1 | tee apply.log || APPLY_RC=$?
+          if [ "$APPLY_RC" -eq 0 ]; then
+            exit 0
+          fi
+          if grep -qE 'already exists|FPROF0001|Duplicate profile|Duplicate parcel' apply.log; then
+            echo "vManage has stale objects and state is out of sync — resetting lab and retrying..."
+            bash scripts/lab-reset-vmanage.sh
+            rm -f terraform.tfstate terraform.tfstate.backup
+            rm -f "${HOME}/terraform-state/${TF_STATE_SUBDIR}/terraform.tfstate"*
+            terraform apply -auto-approve
+          else
+            cat apply.log
+            exit "$APPLY_RC"
+          fi
 
       - name: Save Terraform state on runner
         if: success()

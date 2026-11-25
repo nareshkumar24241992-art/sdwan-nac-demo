@@ -6,13 +6,7 @@ Network-as-Code demo ([netascode/nac-sdwan](https://registry.terraform.io/module
 
 **Normal flow:** commit → push to `main` → pipeline plan + apply. State is kept on the runner at `~/terraform-state/sdwan-nac-demo/`.
 
-## If pipeline says “already exists” (one-time lab reset)
-
-State and vManage are out of sync. Do **not** use import scripts—reset the lab:
-
-1. **vManage** (VPN on): delete configuration group **branches** (if any), then feature profiles **system** and **transport** (and their features).
-2. **Runner:** `rm -f ~/terraform-state/sdwan-nac-demo/terraform.tfstate*`
-3. **Re-run** the workflow once (VPN on). One apply should create everything and save state.
+If apply hits **“already exists”**, the pipeline runs `scripts/lab-reset-vmanage.sh`, clears saved state, and **applies again** automatically (VPN must be up on the runner).
 
 ## Device UUID
 
