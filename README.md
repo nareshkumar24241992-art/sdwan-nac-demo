@@ -1,58 +1,19 @@
 # sdwan-nac-demo
 
-Catalyst SD-WAN **Network as Code** demo using [netascode/nac-sdwan](https://registry.terraform.io/modules/netascode/nac-sdwan/sdwan) and the [CiscoDevNet/sdwan](https://registry.terraform.io/providers/CiscoDevNet/sdwan) provider. CI runs on a self-hosted GitHub Actions runner.
+Network-as-Code demo ([netascode/nac-sdwan](https://registry.terraform.io/modules/netascode/nac-sdwan/sdwan)) with GitHub Actions on a **self-hosted** runner.
 
-## Sandbox setup (DevNet 20.18)
+**Requirements:** DevNet sandbox **VPN on the runner**, secrets `SDWAN_URL` / `SDWAN_USERNAME` / `SDWAN_PASSWORD`, correct `chassis_id` in `data/sites.nac.yaml`.
 
-1. Reserve **Catalyst SD-WAN, Release 20.18** in [Cisco DevNet Sandbox](https://developer.cisco.com/sandbox/).
-2. Open **Credentials** on the sandbox page and copy the vManage URL, username, and password.
-3. If the lab requires **VPN**, connect before running Terraform from your runner or laptop.
-4. In vManage, find your edge device **UUID** (chassis ID) and set it in `data/sites.nac.yaml` instead of `REPLACE-WITH-DEVICE-UUID-FROM-VMANAGE`.
+**Normal flow:** commit → push to `main` → pipeline plan + apply. State is kept on the runner at `~/terraform-state/sdwan-nac-demo/`.
 
-## GitHub Actions secrets
+## If pipeline says “already exists” (one-time lab reset)
 
-Repository **Settings → Secrets and variables → Actions**:
+State and vManage are out of sync. Do **not** use import scripts—reset the lab:
 
-| Secret | Value |
-|--------|--------|
-| `SDWAN_URL` | vManage URL from sandbox (e.g. `https://…`) |
-| `SDWAN_USERNAME` | Sandbox username |
-| `SDWAN_PASSWORD` | Sandbox password |
+1. **vManage** (VPN on): delete configuration group **branches** (if any), then feature profiles **system** and **transport** (and their features).
+2. **Runner:** `rm -f ~/terraform-state/sdwan-nac-demo/terraform.tfstate*`
+3. **Re-run** the workflow once (VPN on). One apply should create everything and save state.
 
-The workflow maps these to `TF_VAR_sdwan_*` for Terraform.
+## Device UUID
 
-## Local commands
-
-```bash
-export TF_VAR_sdwan_url="https://your-vmanage"
-export TF_VAR_sdwan_username="admin"
-export TF_VAR_sdwan_password="your-password"
-
-terraform init
-terraform plan
-terraform apply
-```
-
-## Layout
-
-- `main.tf` — provider + `nac-sdwan` module
-- `data/*.nac.yaml` — declarative SD-WAN intent (configuration, sites, defaults)
-
-Based on [netascode/nac-sdwan-simple-example](https://github.com/netascode/nac-sdwan-simple-example).
-
-## “Profile already exists” in CI
-
-GitHub Actions checks out a **clean** copy each run. If an earlier **apply** created objects in vManage but **state was not saved**, the next run tries to create them again and vManage returns `already exists`.
-
-**Fix (pick one):**
-
-1. **Import then apply (WSL, VPN on)** — one-time sync state with vManage:
-   ```bash
-   chmod +x scripts/bootstrap-import-existing.sh
-   export TF_VAR_sdwan_url=... TF_VAR_sdwan_username=admin TF_VAR_sdwan_password=...
-   ./scripts/bootstrap-import-existing.sh
-   terraform apply
-   ```
-   Copy `terraform.tfstate` to the runner cache path only if needed; normally the workflow **cache** keeps state after the next successful apply.
-
-2. **Clean lab** — In vManage, remove the Terraform-created **feature profiles** (`system`, `transport`) and related features, then re-run the pipeline (workflow caches state after a successful apply).
+`./scripts/list-vmanage-devices.sh` (WSL, VPN on) — use **Edge1** `C8K-…` in `data/sites.nac.yaml`.

@@ -11,8 +11,6 @@ env:
   TF_VAR_sdwan_username: ${{ secrets.SDWAN_USERNAME }}
   TF_VAR_sdwan_password: ${{ secrets.SDWAN_PASSWORD }}
   TF_STATE_SUBDIR: sdwan-nac-demo
-  # Objects created by nac-sdwan module before configuration group (import must finish first)
-  SDWAN_RESOURCES_EXPECTED: "12"
 
 jobs:
   terraform:
@@ -31,88 +29,32 @@ jobs:
             cp "$TF_STATE_DIR/terraform.tfstate" terraform.tfstate
             [ -f "$TF_STATE_DIR/terraform.tfstate.backup" ] && \
               cp "$TF_STATE_DIR/terraform.tfstate.backup" terraform.tfstate.backup || true
-            echo "Restored terraform.tfstate from $TF_STATE_DIR"
-          else
-            echo "No saved state on runner yet."
           fi
 
-      # setup-terraform downloads a zip and needs unzip (often missing on minimal self-hosted runners)
       - name: Install unzip
         run: |
-          if command -v unzip >/dev/null 2>&1; then
-            echo "unzip already installed"
-          elif command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y unzip
-          elif command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y unzip
-          elif command -v yum >/dev/null 2>&1; then
-            sudo yum install -y unzip
-          else
-            echo "Install unzip on this self-hosted runner, then re-run the workflow."
-            exit 1
-          fi
+          command -v unzip >/dev/null 2>&1 && exit 0
+          command -v apt-get >/dev/null 2>&1 && sudo apt-get update && sudo apt-get install -y unzip
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          # Wrapper is a Node script; self-hosted runners often have no `node` on PATH for shell steps
           terraform_wrapper: false
 
       - name: Terraform Init
         run: terraform init
 
-      - name: Sync Terraform state with vManage (if empty)
-        run: |
-          set -e
-          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          echo "Resources in state before sync: ${count}"
-          if [ "${count}" -ge "${SDWAN_RESOURCES_EXPECTED}" ]; then
-            echo "State complete (${count} resources); skipping import."
-            exit 0
-          fi
-          echo "State incomplete (${count}/${SDWAN_RESOURCES_EXPECTED}); running import..."
-          if [ ! -f scripts/bootstrap-import-existing.sh ]; then
-            echo "ERROR: scripts/bootstrap-import-existing.sh missing — push it to GitHub."
-            exit 1
-          fi
-          echo "Importing objects that already exist in vManage..."
-          bash scripts/bootstrap-import-existing.sh
-          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          echo "Resources in state after sync: ${count}"
-          if [ "${count}" -lt "${SDWAN_RESOURCES_EXPECTED}" ]; then
-            echo "ERROR: import incomplete (${count}/${SDWAN_RESOURCES_EXPECTED}). VPN up? Fixed bootstrap script pushed?"
-            exit 1
-          fi
-
-      - name: Terraform Plan (PR & Push)
+      - name: Terraform Plan
         run: terraform plan -no-color
 
-      - name: Terraform Apply (Merge to Main Only)
+      - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          set -e
-          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          if [ "${count}" -lt "${SDWAN_RESOURCES_EXPECTED}" ]; then
-            bash scripts/bootstrap-import-existing.sh
-          fi
-          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          if [ "${count}" -lt "${SDWAN_RESOURCES_EXPECTED}" ]; then
-            echo "ERROR: refuse apply with partial state (${count}/${SDWAN_RESOURCES_EXPECTED})"
-            exit 1
-          fi
-          terraform apply -auto-approve
+        run: terraform apply -auto-approve
 
       - name: Save Terraform state on runner
-        if: always()
+        if: success()
         run: |
           TF_STATE_DIR="${HOME}/terraform-state/${TF_STATE_SUBDIR}"
           mkdir -p "$TF_STATE_DIR"
-          COUNT="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          if [ -f terraform.tfstate ] && [ "${COUNT}" -ge "${SDWAN_RESOURCES_EXPECTED}" ]; then
-            cp terraform.tfstate "$TF_STATE_DIR/"
-            [ -f terraform.tfstate.backup ] && \
-              cp terraform.tfstate.backup "$TF_STATE_DIR/" || true
-            echo "Saved terraform.tfstate (${COUNT} sdwan resources) to $TF_STATE_DIR"
-          else
-            echo "Not saving empty state (would cause 'already exists' on next run)."
-          fi
+          [ -f terraform.tfstate ] && cp terraform.tfstate "$TF_STATE_DIR/"
+          [ -f terraform.tfstate.backup ] && cp terraform.tfstate.backup "$TF_STATE_DIR/" || true
