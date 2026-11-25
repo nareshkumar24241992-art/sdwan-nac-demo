@@ -38,6 +38,9 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          # Wrapper is a Node script; self-hosted runners often have no `node` on PATH for shell steps
+          terraform_wrapper: false
 
       - name: Terraform Init
         run: terraform init
