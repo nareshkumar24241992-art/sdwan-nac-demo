@@ -10,6 +10,7 @@ env:
   TF_VAR_sdwan_url: ${{ secrets.SDWAN_URL }}
   TF_VAR_sdwan_username: ${{ secrets.SDWAN_USERNAME }}
   TF_VAR_sdwan_password: ${{ secrets.SDWAN_PASSWORD }}
+  TF_STATE_SUBDIR: sdwan-nac-demo
 
 jobs:
   terraform:
@@ -19,6 +20,19 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Restore Terraform state from runner
+        run: |
+          TF_STATE_DIR="${HOME}/terraform-state/${TF_STATE_SUBDIR}"
+          mkdir -p "$TF_STATE_DIR"
+          if [ -f "$TF_STATE_DIR/terraform.tfstate" ]; then
+            cp "$TF_STATE_DIR/terraform.tfstate" terraform.tfstate
+            [ -f "$TF_STATE_DIR/terraform.tfstate.backup" ] && \
+              cp "$TF_STATE_DIR/terraform.tfstate.backup" terraform.tfstate.backup || true
+            echo "Restored terraform.tfstate from $TF_STATE_DIR"
+          else
+            echo "No saved state on runner yet."
+          fi
 
       # setup-terraform downloads a zip and needs unzip (often missing on minimal self-hosted runners)
       - name: Install unzip
@@ -51,3 +65,15 @@ jobs:
       - name: Terraform Apply (Merge to Main Only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve
+
+      - name: Save Terraform state on runner
+        if: always()
+        run: |
+          TF_STATE_DIR="${HOME}/terraform-state/${TF_STATE_SUBDIR}"
+          mkdir -p "$TF_STATE_DIR"
+          if [ -f terraform.tfstate ]; then
+            cp terraform.tfstate "$TF_STATE_DIR/"
+            [ -f terraform.tfstate.backup ] && \
+              cp terraform.tfstate.backup "$TF_STATE_DIR/" || true
+            echo "Saved terraform.tfstate to $TF_STATE_DIR"
+          fi
