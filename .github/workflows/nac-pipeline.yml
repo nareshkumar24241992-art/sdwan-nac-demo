@@ -59,16 +59,26 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      # vManage may already have objects from a prior apply while state was lost on checkout
-      - name: Import existing vManage objects if state is empty
+      - name: Sync Terraform state with vManage (if empty)
         run: |
+          set -e
           count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
-          if [ "${count}" -lt 1 ]; then
-            echo "No sdwan resources in state; importing existing lab objects..."
-            chmod +x scripts/bootstrap-import-existing.sh
-            ./scripts/bootstrap-import-existing.sh
-          else
-            echo "State already tracks ${count} sdwan resource(s); skipping import."
+          echo "Resources in state before sync: ${count}"
+          if [ "${count}" -ge 1 ]; then
+            echo "State already populated; skipping import."
+            exit 0
+          fi
+          if [ ! -f scripts/bootstrap-import-existing.sh ]; then
+            echo "ERROR: scripts/bootstrap-import-existing.sh missing — push it to GitHub."
+            exit 1
+          fi
+          echo "Importing objects that already exist in vManage..."
+          bash scripts/bootstrap-import-existing.sh
+          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
+          echo "Resources in state after sync: ${count}"
+          if [ "${count}" -lt 12 ]; then
+            echo "ERROR: import did not populate state (VPN up? IDs match this sandbox?)."
+            exit 1
           fi
 
       - name: Terraform Plan (PR & Push)
@@ -76,16 +86,25 @@ jobs:
 
       - name: Terraform Apply (Merge to Main Only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve
+        run: |
+          set -e
+          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
+          if [ "${count}" -lt 1 ]; then
+            bash scripts/bootstrap-import-existing.sh
+          fi
+          terraform apply -auto-approve
 
       - name: Save Terraform state on runner
         if: always()
         run: |
           TF_STATE_DIR="${HOME}/terraform-state/${TF_STATE_SUBDIR}"
           mkdir -p "$TF_STATE_DIR"
-          if [ -f terraform.tfstate ]; then
+          COUNT="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
+          if [ -f terraform.tfstate ] && [ "${COUNT}" -ge 1 ]; then
             cp terraform.tfstate "$TF_STATE_DIR/"
             [ -f terraform.tfstate.backup ] && \
               cp terraform.tfstate.backup "$TF_STATE_DIR/" || true
-            echo "Saved terraform.tfstate to $TF_STATE_DIR"
+            echo "Saved terraform.tfstate (${COUNT} sdwan resources) to $TF_STATE_DIR"
+          else
+            echo "Not saving empty state (would cause 'already exists' on next run)."
           fi
