@@ -59,6 +59,18 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      # vManage may already have objects from a prior apply while state was lost on checkout
+      - name: Import existing vManage objects if state is empty
+        run: |
+          count="$(terraform state list 2>/dev/null | grep -c 'module.sdwan' || true)"
+          if [ "${count}" -lt 1 ]; then
+            echo "No sdwan resources in state; importing existing lab objects..."
+            chmod +x scripts/bootstrap-import-existing.sh
+            ./scripts/bootstrap-import-existing.sh
+          else
+            echo "State already tracks ${count} sdwan resource(s); skipping import."
+          fi
+
       - name: Terraform Plan (PR & Push)
         run: terraform plan -no-color
 
