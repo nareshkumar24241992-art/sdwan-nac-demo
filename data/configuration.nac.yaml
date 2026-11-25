@@ -1,0 +1,43 @@
+---
+sdwan:
+  configuration_groups:
+    - name: branches
+      system_profile: system
+      transport_profile: transport
+  feature_profiles:
+    system_profiles:
+      - name: system
+        aaa:
+          name: aaa
+          users:
+            - name: admin
+              password: ChangeMe-DeviceAdmin1
+        basic:
+          name: basic
+        bfd:
+          name: bfd
+        global:
+          name: global
+        logging:
+          name: logging
+        omp:
+          name: omp
+    transport_profiles:
+      - name: transport
+        gps_features:
+          - name: gps
+        wan_vpn:
+          name: wan_vpn
+          ethernet_interfaces:
+            - name: inet
+              interface_name_variable: inet_interface_name
+              ipv4_address_type: dynamic
+              shutdown: false
+              tunnel_interface:
+                color: biz-internet
+            - name: mpls
+              interface_name_variable: mpls_interface_name
+              ipv4_address_type: dynamic
+              shutdown: false
+              tunnel_interface:
+                color: mpls
